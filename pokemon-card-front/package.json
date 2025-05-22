@@ -1,5 +1,5 @@
 {
-  "name": "pokemon-card-front",
+  "name": "pokemon-card-scanner",
   "license": "0BSD",
   "version": "1.0.0",
   "main": "index.js",
@@ -10,13 +10,22 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-navigation/native": "^7.1.9",
+    "@react-navigation/stack": "^7.3.2",
     "expo": "~53.0.9",
+    "expo-camera": "~16.1.6",
     "expo-status-bar": "~2.2.3",
+    "expo-text-recognition": "^0.1.1",
+    "pokemon-card-scanner": "file:",
     "react": "19.0.0",
-    "react-native": "0.79.2"
+    "react-native": "0.79.2",
+    "react-native-camera": "^4.2.1",
+    "react-native-gesture-handler": "^2.25.0",
+    "react-native-safe-area-context": "^5.4.1",
+    "react-native-tesseract-ocr": "^2.0.3"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0"
+    "@babel/core": "^7.26.0"
   },
   "private": true
 }
