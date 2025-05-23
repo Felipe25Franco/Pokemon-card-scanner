@@ -1,152 +1,216 @@
-import React, { useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Alert } from 'react-native';
-import Icon from 'react-native-vector-icons/FontAwesome';
-import { RNCamera } from 'react-native-camera';
-import TesseractOcr from 'react-native-tesseract-ocr';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Image,
+  Alert,
+  ScrollView,
+} from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import axios from 'axios';
 
 export function Scanner() {
-  const [cardCode, setCardCode] = useState('');
-  const [isScanning, setIsScanning] = useState(false);
-  const [isCameraVisible, setIsCameraVisible] = useState(false);
+  const [series, setSeries] = useState([]);
+  const [sets, setSets] = useState([]);
+  const [selectedSerie, setSelectedSerie] = useState('');
+  const [selectedSet, setSelectedSet] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
   const [cardData, setCardData] = useState(null);
-  const cameraRef = useRef(null);
+  const [loading, setLoading] = useState(false);
+  const [cardPrice, setCardPrice] = useState(null);
+
+  // Fetch series on component mount
+  useEffect(() => {
+    const fetchSeries = async () => {
+      try {
+        const response = await axios.get('https://api.tcgdex.net/v2/pt/series');
+        setSeries(response.data);
+      } catch (error) {
+        console.error('Erro ao buscar séries:', error);
+        Alert.alert('Erro', 'Não foi possível carregar as séries.');
+      }
+    };
+
+    fetchSeries();
+  }, []);
+
+  // Fetch sets when a serie is selected
+  useEffect(() => {
+    const fetchSets = async () => {
+      if (!selectedSerie) return;
+      try {
+        const response = await axios.get(`https://api.tcgdex.net/v2/pt/series/${selectedSerie}`);
+        setSets(response.data.sets);
+      } catch (error) {
+        console.error('Erro ao buscar conjuntos:', error);
+        Alert.alert('Erro', 'Não foi possível carregar os conjuntos.');
+      }
+    };
+
+    fetchSets();
+  }, [selectedSerie]);
+
+  useEffect(() => {
+  console.log('Series:', series);
+  console.log('Selected Serie:', selectedSerie);
+}, [series, selectedSerie]);
+
+useEffect(() => {
+  if (cardData) {
+    const cardName = cardData.name;
+    const cardNumber = cardData.localId;
+    const cardSet = cardData.set.id;
+
+    const fetchPrice = async () => {
+      try {
+        const response = await axios.get(`https://www.ligapokemon.com.br/?view=cards/search&card=nome=${cardName}&num=${cardNumber}&ed=${cardSet}`);
+        const price = response.data.price; // Ajuste conforme a estrutura da resposta
+        setCardPrice(price);
+      } catch (error) {
+        console.error('Erro ao buscar preço:', error);
+        setCardPrice('Não disponível');
+      }
+    };
+
+    fetchPrice();
+  }
+}, [cardData]);
 
   const handleSearch = async () => {
-    if (!cardCode) {
-      Alert.alert('Erro', 'Digite um código de carta.');
+    if (!selectedSet || !cardNumber) {
+      Alert.alert('Erro', 'Selecione uma série, um conjunto e informe o número da carta.');
       return;
     }
 
+    setLoading(true);
     try {
-      const response = await axios.get(`https://api.tcgdex.net/v2/pt/cards/${cardCode.toLowerCase()}`);
+      const cardId = `${selectedSet}-${cardNumber}`;
+      const response = await axios.get(`https://api.tcgdex.net/v2/pt/cards/${cardId.toLowerCase()}`);
       setCardData(response.data);
+      console.log('Card Data:', response.data);
+
     } catch (error) {
-      console.error(error);
+      console.error('Erro ao buscar carta:', error);
       Alert.alert('Erro', 'Carta não encontrada ou código inválido.');
-    }
-  };
-
-  const handleScan = async () => {
-    setIsCameraVisible(true);
-  };
-
-  const handleTakePicture = async () => {
-    if (!cameraRef.current || isScanning) return;
-    setIsScanning(true);
-
-    try {
-      const options = { quality: 0.8, base64: true };
-      const data = await cameraRef.current.takePictureAsync(options);
-
-      const ocrResult = await TesseractOcr.recognize(data.uri, { lang: 'pt-br' });
-      const texts = ocrResult.split('\n');
-      const code = texts.find(text => /^[a-zA-Z0-9]+-\d+$/.test(text.trim()));
-
-      if (code) {
-        setCardCode(code.trim());
-        setIsCameraVisible(false);
-        setTimeout(handleSearch, 300); // aguarda o setState e busca
-      } else {
-        Alert.alert('Código não encontrado', texts.join('\n'));
-      }
-    } catch (err) {
-      console.error(err);
-      Alert.alert('Erro', 'Falha ao escanear.');
+      setCardData(null);
     } finally {
-      setIsScanning(false);
+      setLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      {!isCameraVisible ? (
-        <>
-          <Text style={styles.label}>Digite o código da carta:</Text>
-          <TextInput
-            style={styles.input}
-            value={cardCode}
-            onChangeText={setCardCode}
-            placeholder="ex: swsh3-136"
-            autoCapitalize="none"
-          />
-
-          <TouchableOpacity style={styles.button} onPress={handleSearch}>
-            <Icon name="search" size={18} color="#fff" />
-            <Text style={styles.buttonText}>Buscar Carta</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.button, styles.scanButton]} onPress={handleScan}>
-            <Icon name="camera" size={18} color="#fff" />
-            <Text style={styles.buttonText}>Escanear Código</Text>
-          </TouchableOpacity>
-
-          {cardData && (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{cardData.name}</Text>
-              <Image
-                source={{
-                  uri: `https://assets.tcgdex.net/pt/${cardData.set.series.id}/${cardData.set.id}/${cardData.number}/high.webp`,
-                }}
-                style={styles.cardImage}
-              />
-              <Text style={styles.cardText}>Conjunto: {cardData.set.name}</Text>
-              <Text style={styles.cardText}>Número: {cardData.number}</Text>
-              <Text style={styles.cardText}>Tipo: {cardData.supertype}</Text>
-            </View>
-          )}
-        </>
-      ) : (
-        <RNCamera
-          ref={cameraRef}
-          style={styles.camera}
-          type={RNCamera.Constants.Type.back}
-          captureAudio={false}
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.label}>Selecione a Série:</Text>
+      <View style={styles.pickerContainer}>
+        <Picker
+          selectedValue={selectedSerie}
+          onValueChange={(itemValue) => {
+            setSelectedSerie(itemValue);
+            setSelectedSet('');
+            setCardData(null);
+          }}
         >
-          <View style={styles.cameraOverlay}>
-            <TouchableOpacity style={styles.button} onPress={handleTakePicture}>
-              {isScanning ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Icon name="camera" size={18} color="#fff" />
-                  <Text style={styles.buttonText}>Capturar</Text>
-                </>
-              )}
-            </TouchableOpacity>
+          <Picker.Item label="Selecione uma série..." value="" />
+          {series.map((serie) => (
+            <Picker.Item key={serie.id} label={serie.name} value={serie.id} />
+          ))}
+        </Picker>
+      </View>
 
-            <TouchableOpacity style={[styles.button, { backgroundColor: '#555' }]} onPress={() => setIsCameraVisible(false)}>
-              <Text style={styles.buttonText}>Cancelar</Text>
-            </TouchableOpacity>
+      {sets.length > 0 && (
+        <>
+          <Text style={styles.label}>Selecione o Conjunto:</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={selectedSet}
+              onValueChange={(itemValue) => {
+                setSelectedSet(itemValue);
+                setCardData(null);
+              }}
+            >
+              <Picker.Item label="Selecione um conjunto..." value="" />
+              {sets.map((set) => (
+                <Picker.Item key={set.id} label={set.name} value={set.id} />
+              ))}
+            </Picker>
           </View>
-        </RNCamera>
+        </>
       )}
-    </View>
+
+      <Text style={styles.label}>Número da Carta:</Text>
+      <TextInput
+        style={styles.input}
+        value={cardNumber}
+        onChangeText={setCardNumber}
+        placeholder="Ex: 136"
+        keyboardType="numeric"
+      />
+
+      <TouchableOpacity style={styles.button} onPress={handleSearch}>
+        <Text style={styles.buttonText}>Buscar Carta</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={[styles.button, styles.scanButton]} onPress={() => Alert.alert('Scanner', 'Funcionalidade de scanner ainda não implementada.')}>
+        <Text style={styles.buttonText}>Escanear Carta</Text>
+      </TouchableOpacity>
+
+      {loading && <ActivityIndicator size="large" color="#2a75bb" style={{ marginTop: 20 }} />}
+
+      {cardData && (
+  <View style={styles.card}>
+    <Text style={styles.cardTitle}>{cardData.name}</Text>
+
+    {cardData.image ? (
+  <Image
+    source={{ uri: `${cardData.image}/high.webp` }}
+    style={styles.cardImage}
+  />
+) : (
+  <Text style={styles.cardText}>Imagem não disponível</Text>
+)}
+
+    <Text style={styles.cardText}>Conjunto: {cardData.set?.name || 'N/A'}</Text>
+    <Text style={styles.cardText}>Número: {cardData.localId || 'N/A'}</Text>
+    <Text style={styles.cardText}>Tipo: {cardData.supertype || 'N/A'}</Text>
+     <Text style={styles.cardText}>Preço: {cardPrice || 'Carregando...'}</Text>
+  </View>
+)}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: '#fff' },
-  label: { fontSize: 16, marginBottom: 10 },
+  container: { padding: 20, backgroundColor: '#fff' },
+  label: { fontSize: 16, marginBottom: 5 },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    marginBottom: 15,
+    overflow: 'hidden',
+  },
   input: {
-    borderWidth: 1, borderColor: '#ccc', borderRadius: 8,
-    padding: 10, marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 15,
   },
   button: {
     backgroundColor: '#2a75bb',
     padding: 12,
     borderRadius: 8,
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 10,
   },
   scanButton: { backgroundColor: '#4e8cff' },
-  buttonText: { color: '#fff', fontWeight: 'bold', marginLeft: 8 },
+  buttonText: { color: '#fff', fontWeight: 'bold' },
   card: { marginTop: 20, alignItems: 'center' },
   cardTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
   cardImage: { width: 200, height: 270, resizeMode: 'contain', marginBottom: 10 },
   cardText: { fontSize: 14 },
-  camera: { flex: 1, justifyContent: 'flex-end' },
-  cameraOverlay: { alignItems: 'center', marginBottom: 30 },
 });
