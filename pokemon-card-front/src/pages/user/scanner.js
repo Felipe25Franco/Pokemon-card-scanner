@@ -1,146 +1,152 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
-import { RNCamera } from 'react-native-camera';
+import React, { useRef, useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Alert } from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome';
+import { RNCamera } from 'react-native-camera';
 import TesseractOcr from 'react-native-tesseract-ocr';
+import axios from 'axios';
 
-export function Scanner({ navigation }) {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [hasPermission, setHasPermission] = useState(null);
-  const cameraRef = React.useRef(null);
+export function Scanner() {
+  const [cardCode, setCardCode] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [isCameraVisible, setIsCameraVisible] = useState(false);
+  const [cardData, setCardData] = useState(null);
+  const cameraRef = useRef(null);
 
-  // Solicita permissão de câmera
-  useEffect(() => {
-    (async () => {
-      const { status } = await RNCamera.requestPermissionsAsync();
-      setHasPermission(status === 'granted');
-    })();
-  }, []);
+  const handleSearch = async () => {
+    if (!cardCode) {
+      Alert.alert('Erro', 'Digite um código de carta.');
+      return;
+    }
 
-  // Função de escaneamento
+    try {
+      const response = await axios.get(`https://api.tcgdex.net/v2/pt/cards/${cardCode.toLowerCase()}`);
+      setCardData(response.data);
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Erro', 'Carta não encontrada ou código inválido.');
+    }
+  };
+
   const handleScan = async () => {
-    if (!cameraRef.current || isProcessing) return;
+    setIsCameraVisible(true);
+  };
 
-    setIsProcessing(true);
+  const handleTakePicture = async () => {
+    if (!cameraRef.current || isScanning) return;
+    setIsScanning(true);
+
     try {
       const options = { quality: 0.8, base64: true };
       const data = await cameraRef.current.takePictureAsync(options);
 
-      // Processa a imagem com o Tesseract OCR
-      const ocrConfig = {
-        lang: 'eng', // Use o idioma que preferir ou adicione outros idiomas se necessário
-      };
+      const ocrResult = await TesseractOcr.recognize(data.uri, { lang: 'pt-br' });
+      const texts = ocrResult.split('\n');
+      const code = texts.find(text => /^[a-zA-Z0-9]+-\d+$/.test(text.trim()));
 
-      const result = await TesseractOcr.recognize(data.uri, ocrConfig);
-      const extractedTexts = result.text.split('\n');
-      const cardCode = extractedTexts.find(text => /^[A-Z0-9]+-\d+$/i.test(text));
-
-      if (cardCode) {
-        navigation.navigate('CardDetailScreen', { cardCode });
-      } else if (extractedTexts.length > 0) {
-        Alert.alert('Texto detectado, mas código de carta não encontrado.', extractedTexts.join('\n'));
+      if (code) {
+        setCardCode(code.trim());
+        setIsCameraVisible(false);
+        setTimeout(handleSearch, 300); // aguarda o setState e busca
       } else {
-        Alert.alert('Nenhum texto encontrado. Tente novamente.');
+        Alert.alert('Código não encontrado', texts.join('\n'));
       }
-    } catch (error) {
-      console.error(error);
-      Alert.alert('Erro ao escanear a imagem.');
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Erro', 'Falha ao escanear.');
     } finally {
-      setIsProcessing(false);
+      setIsScanning(false);
     }
   };
 
-  if (hasPermission === null) {
-    return <View style={styles.center}><Text>Solicitando permissão da câmera...</Text></View>;
-  }
-
-  if (hasPermission === false) {
-    return <View style={styles.center}><Text>Permissão da câmera negada.</Text></View>;
-  }
-
   return (
     <View style={styles.container}>
-      <RNCamera
-        ref={cameraRef}
-        style={styles.camera}
-        type={RNCamera.Constants.Type.back}
-        flashMode={RNCamera.Constants.FlashMode.auto}
-      />
+      {!isCameraVisible ? (
+        <>
+          <Text style={styles.label}>Digite o código da carta:</Text>
+          <TextInput
+            style={styles.input}
+            value={cardCode}
+            onChangeText={setCardCode}
+            placeholder="ex: swsh3-136"
+            autoCapitalize="none"
+          />
 
-      <View style={styles.overlay}>
-        <TouchableOpacity style={styles.button} onPress={handleScan} disabled={isProcessing}>
-          {isProcessing ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <Icon name="search" size={18} color="#fff" />
-              <Text style={styles.buttonText}>Escanear</Text>
-            </>
+          <TouchableOpacity style={styles.button} onPress={handleSearch}>
+            <Icon name="search" size={18} color="#fff" />
+            <Text style={styles.buttonText}>Buscar Carta</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.button, styles.scanButton]} onPress={handleScan}>
+            <Icon name="camera" size={18} color="#fff" />
+            <Text style={styles.buttonText}>Escanear Código</Text>
+          </TouchableOpacity>
+
+          {cardData && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>{cardData.name}</Text>
+              <Image
+                source={{
+                  uri: `https://assets.tcgdex.net/pt/${cardData.set.series.id}/${cardData.set.id}/${cardData.number}/high.webp`,
+                }}
+                style={styles.cardImage}
+              />
+              <Text style={styles.cardText}>Conjunto: {cardData.set.name}</Text>
+              <Text style={styles.cardText}>Número: {cardData.number}</Text>
+              <Text style={styles.cardText}>Tipo: {cardData.supertype}</Text>
+            </View>
           )}
-        </TouchableOpacity>
-      </View>
+        </>
+      ) : (
+        <RNCamera
+          ref={cameraRef}
+          style={styles.camera}
+          type={RNCamera.Constants.Type.back}
+          captureAudio={false}
+        >
+          <View style={styles.cameraOverlay}>
+            <TouchableOpacity style={styles.button} onPress={handleTakePicture}>
+              {isScanning ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Icon name="camera" size={18} color="#fff" />
+                  <Text style={styles.buttonText}>Capturar</Text>
+                </>
+              )}
+            </TouchableOpacity>
 
-      <View style={styles.footer}>
-        <TouchableOpacity style={styles.footerButton} onPress={() => navigation.navigate('Home')}>
-          <Icon name="home" size={20} color="#fff" />
-          <Text style={styles.footerText}>Home</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.footerButton} onPress={() => navigation.navigate('HitoryScreen')}>
-          <Icon name="history" size={20} color="#fff" />
-          <Text style={styles.footerText}>Histórico</Text>
-        </TouchableOpacity>
-      </View>
+            <TouchableOpacity style={[styles.button, { backgroundColor: '#555' }]} onPress={() => setIsCameraVisible(false)}>
+              <Text style={styles.buttonText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </RNCamera>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  camera: {
-    flex: 1,
-  },
-  overlay: {
-    position: 'absolute',
-    bottom: 100,
-    width: '100%',
-    alignItems: 'center',
+  container: { flex: 1, padding: 20, backgroundColor: '#fff' },
+  label: { fontSize: 16, marginBottom: 10 },
+  input: {
+    borderWidth: 1, borderColor: '#ccc', borderRadius: 8,
+    padding: 10, marginBottom: 15,
   },
   button: {
     backgroundColor: '#2a75bb',
     padding: 12,
     borderRadius: 8,
-    width: 200,
-    alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 30,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    paddingHorizontal: 50,
-  },
-  footerButton: {
     alignItems: 'center',
-  },
-  footerText: {
-    color: '#fff',
-    fontSize: 12,
-    marginTop: 5,
-  },
-  center: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
+    marginBottom: 10,
   },
+  scanButton: { backgroundColor: '#4e8cff' },
+  buttonText: { color: '#fff', fontWeight: 'bold', marginLeft: 8 },
+  card: { marginTop: 20, alignItems: 'center' },
+  cardTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  cardImage: { width: 200, height: 270, resizeMode: 'contain', marginBottom: 10 },
+  cardText: { fontSize: 14 },
+  camera: { flex: 1, justifyContent: 'flex-end' },
+  cameraOverlay: { alignItems: 'center', marginBottom: 30 },
 });
